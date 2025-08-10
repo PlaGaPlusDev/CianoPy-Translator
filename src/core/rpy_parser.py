@@ -23,7 +23,6 @@ PATTERNS = {
     'translate_block': re.compile(r'^\s*translate\s+[a-zA-Z0-9_]+:.*$'),
 }
 
-# ... (protect_code and unprotect_code remain the same) ...
 # Regex to find Ren'Py style text tags, e.g., {b}, {color=#fff}
 TAG_REGEX = re.compile(r'({[^}]+})')
 # Regex to find Python-style variables, e.g., [player_name]
@@ -31,9 +30,10 @@ VAR_REGEX = re.compile(r'(\[[^\]]+\])')
 # Regex for Python format strings, e.g., %(name)s, %s
 FORMAT_REGEX = re.compile(r'(%\([^\)]+\)s|%s)')
 
-def protect_code(text):
+def protect_code(text_no_quotes):
     """
     Replaces code elements in a string with non-translatable placeholders.
+    Assumes the input string does NOT have surrounding quotes.
     Returns the protected string and a list of the original code elements.
     """
     protections = []
@@ -44,17 +44,21 @@ def protect_code(text):
         protections.append(item)
         return placeholder
 
-    text_no_quotes = text.strip().strip('"')
-    protected_text, protections = protect_code(text_no_quotes)
-    return f'"{protected_text}"', protections
+    # Protect all regex patterns
+    protected_text = TAG_REGEX.sub(protector, text_no_quotes)
+    protected_text = VAR_REGEX.sub(protector, protected_text)
+    protected_text = FORMAT_REGEX.sub(protector, protected_text)
 
-def unprotect_code(text, protections):
+    return protected_text, protections
+
+def unprotect_code(translated_text, protections):
     """
     Restores the original code elements from placeholders.
     """
-    text_no_quotes = text.strip().strip('"')
-    unprotected_text = unprotect_code(text_no_quotes, protections)
-    return f'"{unprotected_text}"'
+    for i, item in enumerate(protections):
+        placeholder = f"__P_{i}_"
+        translated_text = translated_text.replace(placeholder, item, 1)
+    return translated_text
 
 def find_next_meaningful_line(lines, start_index):
     """Finds the next non-comment, non-empty line."""
@@ -115,7 +119,6 @@ def extract_translatable_strings(file_content):
                         translatable_strings.append(ts)
                     # This block is already translated
                     else:
-                        # We can store it as translated if needed for "skip" logic
                         ts = TranslatableString(
                             line_number=i,
                             original=old_text,
@@ -130,12 +133,11 @@ def extract_translatable_strings(file_content):
                     i = next_line_index + 1 # Skip past the 'new' line
                     continue
 
-        # If we are inside a translate block, we should not process simple dialogue
         if in_translate_block:
             i += 1
             continue
 
-        # Handle simple dialogue and menu choices (only if not in a translate block)
+        # Handle simple dialogue and menu choices
         char_dialogue_match = PATTERNS['char_dialogue'].match(stripped_line)
         if char_dialogue_match:
             prefix = f"{char_dialogue_match.group(1)} "
