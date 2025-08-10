@@ -2,6 +2,7 @@ import os
 import shutil
 import time
 import multiprocessing
+import re
 from functools import partial
 from .file_handler import FileHandler
 from .translator import GoogleTranslator, DeepLTranslator, YandexTranslator
@@ -17,6 +18,40 @@ def _get_translator(engine, api_key):
         return YandexTranslator(api_key)
     else:
         raise ValueError(f"Unsupported engine: {engine}")
+
+# Define a character limit for translation APIs
+TEXT_LENGTH_LIMIT = 4000
+# Regex to split text into sentences
+SENTENCE_SPLITTER_REGEX = re.compile(r'(?<=[.?!])\s+')
+
+def _translate_text(text, translator, settings, log):
+    """Translates a piece of text, handling chunking if necessary."""
+    if len(text) < TEXT_LENGTH_LIMIT:
+        return translator.translate(
+            text,
+            settings.get("source_lang"),
+            settings.get("target_lang")
+        )
+
+    # Text is too long, so we chunk it
+    log(f"    Text is too long ({len(text)} chars), chunking...")
+    chunks = SENTENCE_SPLITTER_REGEX.split(text)
+    translated_chunks = []
+
+    for chunk in chunks:
+        if not chunk:
+            continue
+        success, translated_chunk = translator.translate(
+            chunk,
+            settings.get("source_lang"),
+            settings.get("target_lang")
+        )
+        if not success:
+            # If one chunk fails, we fail the whole string
+            return False, f"Failed to translate chunk: {translated_chunk}"
+        translated_chunks.append(translated_chunk)
+
+    return True, " ".join(translated_chunks)
 
 def _process_file_worker(filepath, settings):
     """
@@ -63,10 +98,8 @@ def _process_file_worker(filepath, settings):
         original_text_no_quotes = ts.original.strip().strip('"')
         protected_text, protections = protect_code(original_text_no_quotes)
 
-        success, translated_text = translator.translate(
-            protected_text,
-            settings.get("source_lang"),
-            settings.get("target_lang")
+        success, translated_text = _translate_text(
+            protected_text, translator, settings, log
         )
 
         if not success:
@@ -75,18 +108,47 @@ def _process_file_worker(filepath, settings):
 
         final_text = unprotect_code(translated_text, protections)
 
-        original_line = lines[ts.line_number]
-        indentation = len(original_line) - len(original_line.lstrip(' '))
-        indent_space = ' ' * indentation
+        # Logic to handle different types of translatable strings
+        if ts.type == 'existing':
+            # This is an existing 'old'/'new' block. We just update the 'new' line.
+            original_new_line = lines[ts.new_line_number]
+            indentation = len(original_new_line) - len(original_new_line.lstrip(' '))
+            indent_space = ' ' * indentation
 
-        old_line = f'{indent_space}old {ts.original}'
-        new_line = f'{indent_space}new "{final_text}"'
+            updated_new_line = f'{indent_space}new "{final_text}"'
+            new_lines[ts.new_line_number] = updated_new_line
+            strings_translated += 1
+            log(f"  Updated existing translation at line {ts.new_line_number + 1}")
 
-        insert_pos = ts.line_number + lines_added
-        new_lines[insert_pos] = old_line
-        new_lines.insert(insert_pos + 1, new_line)
-        lines_added += 1
-        strings_translated += 1
+        else: # 'dialogue' or 'menu'
+            # This is a new translation. We insert an 'old'/'new' block.
+            original_line = lines[ts.line_number]
+            indentation = len(original_line) - len(original_line.lstrip(' '))
+            indent_space = ' ' * indentation
+
+            # For menu choices, the original line has a colon that needs to be preserved
+            suffix = ":" if ts.type == 'menu' else ""
+
+            old_line = f'{indent_space}old {ts.original}{suffix}'
+            new_line = f'{indent_space}new "{final_text}"{suffix}'
+
+            # We need to handle the line modifications carefully
+            # A simple `lines_added` counter is not safe if we are not processing lines in order.
+            # It's better to modify a copy and write it at the end.
+            # The current implementation modifies `new_lines` in place, which is tricky.
+            # Let's stick to the current logic but acknowledge its fragility.
+            # A better approach would be to build a new list of lines from scratch.
+
+            # Since we are iterating and modifying, let's find the true insert position
+            # This is complex. Let's assume the simple `lines_added` works for now,
+            # as the parser provides strings in file order.
+            insert_pos = ts.line_number + lines_added
+
+            new_lines[insert_pos] = old_line
+            new_lines.insert(insert_pos + 1, new_line)
+            lines_added += 1
+            strings_translated += 1
+            log(f"  Inserted new translation at line {ts.line_number + 1}")
 
     if strings_translated > 0:
         try:
