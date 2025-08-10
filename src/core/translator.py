@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import deepl
 import googletrans
-from yandex_translater import YandexTranslate
+from yandex import Translater as YandexTranslate
 
 class BaseTranslator(ABC):
     """Abstract base class for all translation services."""
@@ -64,18 +64,19 @@ class YandexTranslator(BaseTranslator):
         super().__init__("Yandex Translate")
         if not api_key:
             raise ValueError("Yandex API key is required.")
-        self.translator = YandexTranslate(api_key)
+        self.translator = YandexTranslate(key=api_key)
 
     def translate(self, text, source_lang, target_lang):
-        # Yandex requires a language direction string, e.g., "en-es"
-        source = source_lang.lower() if source_lang != "Auto" else self.translator.detect(text)
-        direction = f"{source}-{target_lang.lower()}"
         try:
-            translated = self.translator.translate(text, direction)
-            # The yandex-translater library returns a dict
-            if translated['code'] == 200:
-                return True, translated['text'][0]
-            else:
-                return False, f"Yandex Translate Error: {translated.get('message', 'Unknown error')}"
+            self.translator.set_text(text)
+            # The library detects language if from_lang is not set
+            if source_lang.lower() != 'auto':
+                self.translator.set_from_lang(source_lang.lower())
+
+            self.translator.set_to_lang(target_lang.lower())
+
+            translated_text = self.translator.translate()
+            return True, translated_text
         except Exception as e:
+            # The library raises custom exceptions, but catching Exception is safer
             return False, f"Yandex Translate Error: {e}"
