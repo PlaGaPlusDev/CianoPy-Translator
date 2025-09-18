@@ -53,12 +53,51 @@ class MainWindow(QMainWindow):
         self.game_folder = ""
         self.renpy_path = ""
 
-        # Create main sections
-        self.main_layout.addWidget(self._create_input_section())
-        self.main_layout.addWidget(self._create_config_section())
-        self.main_layout.addWidget(self._create_options_section())
-        self.main_layout.addWidget(self._create_control_section())
-        self.main_layout.addWidget(self._create_log_section())
+        # Set a global stylesheet for a more polished look
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f0f0f0;
+            }
+            QLabel {
+                font-size: 14px;
+                color: #333;
+            }
+            QLineEdit, QComboBox, QTextEdit {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                padding: 5px;
+                background-color: #fff;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #0078d7;
+                color: white;
+                border-radius: 4px;
+                padding: 10px;
+                font-size: 14px;
+                border: none;
+            }
+            QPushButton:hover {
+                background-color: #005a9e;
+            }
+            QPushButton:disabled {
+                background-color: #a0a0a0;
+            }
+            QCheckBox {
+                font-size: 14px;
+            }
+            QProgressBar {
+                border-radius: 4px;
+                text-align: center;
+            }
+        """)
+
+        # Create main sections without group boxes for a minimal look
+        self._create_input_section(self.main_layout)
+        self._create_config_section(self.main_layout)
+        self._create_options_section(self.main_layout)
+        self._create_control_section(self.main_layout)
+        self._create_log_section(self.main_layout)
 
         # Connect signals
         self.load_files_button.clicked.connect(self._open_files)

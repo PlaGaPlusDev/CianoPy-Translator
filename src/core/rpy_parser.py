@@ -39,8 +39,10 @@ def protect_code(text_no_quotes):
 
 def unprotect_code(translated_text, protections):
     for i, item in enumerate(protections):
-        placeholder_id = f"__P_{i}_"
-        pattern = re.compile(f'<span[^>]*>\\s*{re.escape(placeholder_id)}\\s*<\\s*/\\s*span>')
+        placeholder = f'<span class="notranslate">__P_{i}_</span>'
+        # The placeholder might have been translated with spaces, so we need a flexible regex
+        # This looks for the placeholder text, ignoring surrounding tags or spaces
+        pattern = re.compile(f'__P_{i}_')
         translated_text = pattern.sub(item, translated_text, 1)
     return translated_text
 
